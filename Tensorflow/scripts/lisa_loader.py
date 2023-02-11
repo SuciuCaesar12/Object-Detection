@@ -15,14 +15,11 @@ def get_full_img_path(filename, path_dataset):
 
 
 def decode_csv(path_csv, path_dataset):
-    n = 100
+    n = 1000
     # columns which describe bounding box
     cols = ['Annotation tag', 'Upper left corner X', 'Upper left corner Y', 'Lower right corner X',
             'Lower right corner Y']
     df = pd.read_csv(path_csv, delimiter=';').iloc[:, :6]
-
-    # shuffle dataframe
-    # df = df.sample(frac=1)
     # get first n rows
     df = df.head(n)
     # convert from string to int
@@ -41,10 +38,8 @@ def get_samples_info(path_dataset, split='train'):
 
     if split == 'train':
         foldrs = ['dayTrain', 'nightTrain']
-
         for foldr_1 in foldrs:
             path_1 = os.path.join(path, foldr_1)
-
             # dayClips + nightClips
             for foldr_2 in os.listdir(path_1):
                 path_2 = os.path.join(path_1, foldr_2)
@@ -53,7 +48,6 @@ def get_samples_info(path_dataset, split='train'):
 
     if split == 'test':
         foldrs = ['daySequence1']
-
         for foldr_1 in foldrs:
             path_1 = os.path.join(path, foldr_1)
             samples.extend(decode_csv(os.path.join(path_1, 'frameAnnotationsBOX.csv'), path_dataset))
@@ -98,7 +92,35 @@ def show_samples(samples_info, dsize, resize=False):
                         color=(0, 255, 0), thickness=1)
 
         cv2.imshow('Sample', img)
-        cv2.waitKey(0)
+        cv2.waitKey(50)
+
+
+class LisaLoader:
+
+    def get_samples_info(self, path_dataset, split='train'):
+        """
+        :return: list of form: [[image_path, [label, x_min, y_min, x_max, y_max]'s]]
+        """
+        path = os.path.join(path_dataset, 'Annotations', 'Annotations')
+        samples = []
+
+        if split == 'train':
+            foldrs = ['dayTrain', 'nightTrain']
+            for foldr_1 in foldrs:
+                path_1 = os.path.join(path, foldr_1)
+                # dayClips + nightClips
+                for foldr_2 in os.listdir(path_1):
+                    path_2 = os.path.join(path_1, foldr_2)
+                    # decode the annotation file
+                    samples.extend(decode_csv(os.path.join(path_2, 'frameAnnotationsBOX.csv'), path_dataset))
+
+        if split == 'test':
+            foldrs = ['daySequence1']
+            for foldr_1 in foldrs:
+                path_1 = os.path.join(path, foldr_1)
+                samples.extend(decode_csv(os.path.join(path_1, 'frameAnnotationsBOX.csv'), path_dataset))
+
+        return samples
 
 
 if __name__ == '__main__':
@@ -108,5 +130,5 @@ if __name__ == '__main__':
 
     samples_info = get_samples_info(path_dataset=args.path_dataset)
 
-    show_samples(samples_info=samples_info, dsize=(480, 640), resize=False)
+    show_samples(samples_info=samples_info, dsize=(640, 720), resize=True)
 
