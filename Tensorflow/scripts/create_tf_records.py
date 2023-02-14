@@ -28,23 +28,21 @@ def get_loader(dataset_name):
         return LisaLoader()
 
 
-def get_sample_info(split):
-    samples_info = []
+def get_examples_info(split):
+    examples = []
 
     for dataset_name in DATASET_NAMES:
         loader = get_loader(dataset_name)
-        samples_info.extend(loader.get_samples_info(path_dataset=DATASET_PATHS[dataset_name], split=split))
+        examples.extend(loader.get_examples(path_dataset=DATASET_PATHS[dataset_name], split=split))
 
-    return samples_info
+    return examples
 
 
-def split_info(samples_info):
-    img_paths, labels, bb_cords = [], [], []
-    boxes = []
+def split_examples(examples):
+    labels, bb_cords = [], []
 
-    for sample_info in samples_info:
-        img_paths.append(sample_info[0])
-        boxes.append(sample_info[1])
+    img_paths = [example[0] for example in examples]
+    boxes = [example[1] for example in examples]
 
     for boxes_img in boxes:
         labels.append([box[0] for box in boxes_img])
@@ -59,7 +57,7 @@ def serialize_example(filename, x_min, y_min, x_max, y_max, classes, classes_tex
         'image/width': dataset_util.int64_feature(WIDTH),
         'image/filename': dataset_util.bytes_feature(filename.numpy()),
         'image/source_id': dataset_util.bytes_feature(filename.numpy()),
-        'image/encoded': dataset_util.bytes_feature(filename.numpy()),
+        'image/encoded': dataset_util.bytes_feature(open(filename.numpy().decode('utf-8'), 'rb').read()),
         'image/format': dataset_util.bytes_feature(IMAGE_FORMAT),
         'image/object/bbox/xmin': dataset_util.float_list_feature(x_min.numpy()),
         'image/object/bbox/xmax': dataset_util.float_list_feature(x_max.numpy()),
@@ -71,20 +69,28 @@ def serialize_example(filename, x_min, y_min, x_max, y_max, classes, classes_tex
     return tf_example.SerializeToString()
 
 
-def tf_serialize_example(filename, labels, bb_cord):
+def preprocess_example(filename, labels, bb_cord):
+    # bounding boxes of one image
     bb_cord = tf.reshape(bb_cord, shape=tf.cast([-1, 4], dtype=tf.int32))
 
     x_min, y_min, x_max, y_max = tf.split(bb_cord, num_or_size_splits=4, axis=-1)
 
+    # normalize the coordinates of bounding boxes wrt image's resolution
     x_min, y_min = tf.reshape(x_min / WIDTH, shape=[-1]), tf.reshape(y_min / HEIGHT, shape=[-1])
     x_max, y_max = tf.reshape(x_max / WIDTH, shape=[-1]), tf.reshape(y_max / HEIGHT, shape=[-1])
 
     labels = tf.reshape(labels, shape=[-1, 1])
     labels = tf.broadcast_to(labels, shape=[tf.shape(labels)[0], tf.shape(LABELS)[0]])
 
+    # get the class' id for each bounding box
     classes = tf.reshape(tf.argmax(LABELS == labels, axis=-1) + 1, shape=[-1])
     classes_text = labels[:, 0]
 
+    return filename, x_min, y_min, x_max, y_max, classes, classes_text
+
+
+def tf_serialize_example(filename, x_min, y_min, x_max, y_max, classes, classes_text):
+    # Serialize example
     tf_string = tf.py_function(
         serialize_example,
         (filename, x_min, y_min, x_max, y_max, classes, classes_text),
@@ -97,14 +103,17 @@ if __name__ == '__main__':
     args = read_args()
     writer = tf.io.TFRecordWriter(os.path.join(PATHS['ANNOTATION_PATH'], args.output_filename + '.record'))
 
-    samples_info = get_sample_info(split=('test' if args.test else 'train'))
+    examples = get_examples_info(split=('test' if args.test else 'train'))
 
-    img_paths, labels, bb_cords = split_info(samples_info)
+    img_paths, labels, bb_cords = split_examples(examples)
 
     dataset = tf.data.Dataset.from_tensor_slices((tf.ragged.constant(img_paths),
                                                   tf.ragged.constant(labels),
                                                   tf.ragged.constant(bb_cords)))
-    dataset = dataset.map(tf_serialize_example)
+    dataset = dataset \
+        .map(preprocess_example) \
+        .map(tf_serialize_example) \
+        .shuffle(5000)
 
     for example in dataset:
         writer.write(example.numpy())
