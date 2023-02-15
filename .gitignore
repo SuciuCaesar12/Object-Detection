@@ -1,3 +1,4 @@
-dataset
-Tensorflow/workspace/pre_trained_model
-models
+workspace/datasets
+workspace/models
+workspace/pre_trained_models
+/models/
